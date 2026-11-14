@@ -1,7 +1,6 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from datetime import date
@@ -9,19 +8,14 @@ from datetime import date
 st.set_page_config(page_title="Optionen Profi-Panel v64.2", layout="wide")
 st.title("📊 Optionen Profi-Panel - v64.2 - Adaptiv MASTER")
 
-# ==========================================
-# --- HILFSFUNKTION: INDIKATOR-BERECHNUNG ---
-# ==========================================
 def calculate_indicators(df, df_w, use_v64_1=True):
     df = df.copy()
-    # RSI (14)
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).ewm(alpha=1/14, adjust=False).mean()
     loss = (-delta.where(delta < 0, 0)).ewm(alpha=1/14, adjust=False).mean()
     rs = gain / loss
     df['RSI'] = 100 - (100 / (1 + rs))
 
-    # ATR (20, 14 & 5)
     high_low = df['High'] - df['Low']
     high_close = np.abs(df['High'] - df['Close'].shift())
     low_close = np.abs(df['Low'] - df['Close'].shift())
@@ -32,17 +26,14 @@ def calculate_indicators(df, df_w, use_v64_1=True):
     df['ATR_5'] = tr.ewm(alpha=1/5, adjust=False).mean()
     df['Gap_Risk'] = np.where(df['ATR_20'] > 0, df['ATR_5'] / df['ATR_20'], 1.0)
 
-    # Keltner Bänder (Adaptiv)
     df['KC_Basis'] = df['Close'].ewm(span=20, adjust=False).mean()
     df['KC_Mult'] = np.where(use_v64_1 & (df['Gap_Risk'] > 1.4), 2.4 * 1.3, 2.4)
     df['KC_Upper'] = df['KC_Basis'] + (df['KC_Mult'] * df['ATR_20'])
     df['KC_Lower'] = df['KC_Basis'] - (df['KC_Mult'] * df['ATR_20'])
 
-    # 3-fach ATR Schutzband
     df['ATR_Pro_Lower'] = df['KC_Basis'] - (3.2 * df['ATR_5'])
     df['ATR_Pro_Upper'] = df['KC_Basis'] + (3.2 * df['ATR_5'])
 
-    # Supertrend (Faktor 3.0, Periode 14)
     hl2 = (df['High'] + df['Low']) / 2
     basic_ub = hl2 + (3.0 * df['ATR_14'])
     basic_lb = hl2 - (3.0 * df['ATR_14'])
@@ -50,7 +41,7 @@ def calculate_indicators(df, df_w, use_v64_1=True):
     final_ub = np.zeros(len(df))
     final_lb = np.zeros(len(df))
     supertrend = np.zeros(len(df))
-    st_dir = np.ones(len(df)) # 1 = Abwärtstrend (Rot), -1 = Aufwärtstrend (Grün)
+    st_dir = np.ones(len(df))
     
     close_arr = df['Close'].values
     bub_arr = basic_ub.values
@@ -70,12 +61,10 @@ def calculate_indicators(df, df_w, use_v64_1=True):
     df['Supertrend'] = supertrend
     df['ST_Dir'] = st_dir
 
-    # 30-Wochen SMA
     df_w = df_w.copy()
     df_w['SMA30W'] = df_w['Close'].rolling(window=30).mean()
     df['SMA30W'] = df_w['SMA30W'].reindex(df.index, method='ffill')
 
-    # Garman-Klass Volatilität & HV Rank (252 Tage)
     gk_instant = 0.5 * (np.log(df['High'] / df['Low']) ** 2) - (2 * np.log(2) - 1) * (np.log(df['Close'] / df['Open']) ** 2)
     df['GK_Vol'] = np.sqrt(gk_instant.rolling(window=20).mean() * 252) * 100
     df['HV_Rank'] = df['GK_Vol'].rolling(window=252).apply(lambda x: pd.Series(x).rank(pct=True).iloc[-1] * 100, raw=False)
@@ -103,9 +92,6 @@ def get_scores(last_row, use_v64_1=True):
 
     return entry_score, exit_score
 
-# ==========================================
-# --- SIDEBAR: EINGABEN & FILTER ---
-# ==========================================
 st.sidebar.header("📈 Einzel-Chart & Filter")
 ticker = st.sidebar.text_input("Ticker-Symbol (z.B. AAPL, AAL, SAP.DE)", value="AAL").upper().strip()
 use_v64_1 = st.sidebar.checkbox("Adaptive Bänder & Schockschutz aktivieren", value=True)
@@ -121,14 +107,8 @@ m_cont = st.sidebar.number_input("Anzahl Kontrakte", min_value=0, value=0, step=
 m_shares = st.sidebar.number_input("Bestand Aktien", min_value=0, value=0, step=1)
 exp_date = st.sidebar.date_input("Verfallsdatum", value=date(2026, 12, 18))
 
-# ==========================================
-# --- REITER (TABS) GANZ OBEN ---
-# ==========================================
 tab1, tab2 = st.tabs(["📈 Einzel-Chart & Cockpit", "🔍 Markt-Screener (bis 40 Werte)"])
 
-# ------------------------------------------
-# TAB 1: EINZELANALYSE & CHART
-# ------------------------------------------
 with tab1:
     @st.cache_data(ttl=60)
     def load_single_data(symbol):
@@ -192,19 +172,40 @@ with tab1:
             pct_trend = ((close_now - sma30w_now) / sma30w_now) * 100
             st_status = "Bullish (Grün)" if last['ST_Dir'] == -1 else "Bearish (Rot)"
             
-            dashboard_data = {
-                "METRIK": [
-                    "Basiswert (Aktuell)", "Supertrend (14, 3)", "Optionstyp", "Abw. 30W-Trend",
-                    "Strike-Preis", "Restlaufzeit", "Moneyness", "Gap-Risk Ratio",
-                    "Entry Score", "Exit Score", "HV Rank (GK)"
-                ],
-                "WERT": [
-                    f"{ticker} ({close_now:.2f})",
-                    st_status,
-                    m_type,
-                    f"{pct_trend:+.2f} %",
-                    f"{m_strike:.2f}" if m_strike > 0 else "Nicht definiert",
-                    f"{dte} Tage",
-                    "In-the-Money (ITM)" if is_itm else "Out-of-the-Money (OTM)",
-                    f"{gap_risk_now:.2f}",
-                    f"{entry_score} %",
+            metriken = [
+                "Basiswert (Aktuell)", "Supertrend (14, 3)", "Optionstyp", "Abw. 30W-Trend",
+                "Strike-Preis", "Restlaufzeit", "Moneyness", "Gap-Risk Ratio",
+                "Entry Score", "Exit Score", "HV Rank (GK)"
+            ]
+            werte = [
+                f"{ticker} ({close_now:.2f})",
+                st_status,
+                m_type,
+                f"{pct_trend:+.2f} %",
+                f"{m_strike:.2f}" if m_strike > 0 else "Nicht definiert",
+                f"{dte} Tage",
+                "In-the-Money (ITM)" if is_itm else "Out-of-the-Money (OTM)",
+                f"{gap_risk_now:.2f}",
+                f"{entry_score} %",
+                f"{exit_score} %",
+                f"{hv_rank_now:.1f} %"
+            ]
+            dashboard_df = pd.DataFrame({"METRIK": metriken, "WERT": werte})
+            st.dataframe(dashboard_df, hide_index=True, use_container_width=True, height=430)
+            if st.button("🔄 Einzelkurs aktualisieren"):
+                st.cache_data.clear()
+                st.rerun()
+
+with tab2:
+    st.subheader("🔍 Markt-Screener (Bis zu 40 Werte gleichzeitig prüfen)")
+
+    default_watchlist = "AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, AMD, NFLX, INTC, AAL, DAL, UAL, BA, DIS, KO, PEP, MCD, NKE, SBUX, JPM, BAC, WFC, C, V, MA, PYPL, SQ, XOM, CVX, PFE, JNJ, MRK, ABBV, T, VZ, F, GM, SAP.DE, ALV.DE"
+
+    watchlist_input = st.text_area(
+        "Ticker-Liste (mit Komma getrennt, maximal 40 Werte):",
+        value=default_watchlist,
+        height=90
+    )
+
+    col_btn, col_filter = st.columns(2)
+    with col_btn:
