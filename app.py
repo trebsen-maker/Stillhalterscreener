@@ -50,10 +50,7 @@ def calculate_indicators(df, df_w, use_v64_1=True):
     for i in range(1, len(df)):
         final_ub[i] = ub_arr[i] if (ub_arr[i] < final_ub[i-1] or c_arr[i-1] > final_ub[i-1]) else final_ub[i-1]
         final_lb[i] = lb_arr[i] if (lb_arr[i] > final_lb[i-1] or c_arr[i-1] < final_lb[i-1]) else final_lb[i-1]
-        if st_dir[i-1] == 1:
-            st_dir[i] = -1 if c_arr[i] > final_ub[i] else 1
-        else:
-            st_dir[i] = 1 if c_arr[i] < final_lb[i] else -1
+        st_dir[i] = (-1 if c_arr[i] > final_ub[i] else 1) if st_dir[i-1] == 1 else (1 if c_arr[i] < final_lb[i] else -1)
         supertrend[i] = final_lb[i] if st_dir[i] == -1 else final_ub[i]
 
     df['Supertrend'] = supertrend
@@ -83,10 +80,30 @@ def get_scores(last_row, use_v64_1=True):
     if float(last_row['Low']) <= float(last_row['KC_Lower']) or float(last_row['High']) >= float(last_row['KC_Upper']):
         e_score += 25
 
-    x_score = (40 if float(last_row['High']) >= float(last_row['KC_Upper']) else 0) + \
-              (30 if rsi_now > 70 else 0) + \
-              (30 if c_now > s30_now * 1.15 else 0)
+    x_score = (40 if float(last_row['High']) >= float(last_row['KC_Upper']) else 0) + (30 if rsi_now > 70 else 0) + (30 if c_now > s30_now * 1.15 else 0)
     return e_score, x_score
+
+def scan_single_ticker(sym, data_d, data_w, is_single, use_v64_1):
+    try:
+        df_sym_d = data_d.copy() if is_single else data_d[sym].dropna(how="all")
+        df_sym_w = data_w.copy() if is_single else data_w[sym].dropna(how="all")
+        if len(df_sym_d) < 252:
+            return None
+        df_calc = calculate_indicators(df_sym_d, df_sym_w, use_v64_1)
+        last_r = df_calc.iloc[-1]
+        e_score, x_score = get_scores(last_r, use_v64_1)
+        c_price = float(last_r['Close'])
+        s30 = float(last_r['SMA30W'])
+        pct_30 = ((c_price - s30) / s30) * 100
+        st_txt = "🟢 Bullish" if last_r['ST_Dir'] == -1 else "🔴 Bearish"
+        return {
+            "Ticker": sym, "Kurs": round(c_price, 2), "Entry Score (%)": int(e_score),
+            "Exit Score (%)": int(x_score), "HV Rank (%)": round(float(last_r['HV_Rank']), 1),
+            "RSI (14)": round(float(last_r['RSI']), 1), "Gap-Risk": round(float(last_r['Gap_Risk']), 2),
+            "Abw. 30W-SMA (%)": round(pct_30, 2), "Supertrend": st_txt
+        }
+    except Exception:
+        return None
 
 st.sidebar.header("📈 Einzel-Chart & Filter")
 ticker = st.sidebar.text_input("Ticker-Symbol (z.B. AAPL, AAL, SAP.DE)", value="AAL").upper().strip()
@@ -141,10 +158,8 @@ with col_chart:
     fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['SMA30W'], line=dict(color='yellow', width=2.5), name="30W SMA"))
 
     if show_supertrend:
-        st_green = np.where(plot_df['ST_Dir'] == -1, plot_df['Supertrend'], np.nan)
-        st_red = np.where(plot_df['ST_Dir'] == 1, plot_df['Supertrend'], np.nan)
-        fig.add_trace(go.Scatter(x=plot_df.index, y=st_green, mode='lines', line=dict(color='#00e676', width=2.5), name="Supertrend (Bullish)"))
-        fig.add_trace(go.Scatter(x=plot_df.index, y=st_red, mode='lines', line=dict(color='#ff5252', width=2.5), name="Supertrend (Bearish)"))
+        fig.add_trace(go.Scatter(x=plot_df.index, y=np.where(plot_df['ST_Dir'] == -1, plot_df['Supertrend'], np.nan), mode='lines', line=dict(color='#00e676', width=2.5), name="Supertrend (Bullish)"))
+        fig.add_trace(go.Scatter(x=plot_df.index, y=np.where(plot_df['ST_Dir'] == 1, plot_df['Supertrend'], np.nan), mode='lines', line=dict(color='#ff5252', width=2.5), name="Supertrend (Bearish)"))
 
     if use_atr_pro:
         fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['ATR_Pro_Lower'], mode='markers', marker=dict(color='orange', size=4), name="ATR Pro Support"))
@@ -176,22 +191,3 @@ default_watchlist = "AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, AMD, NFLX, INTC,
 watchlist_input = st.text_area("Ticker-Liste (mit Komma getrennt, maximal 40 Werte):", value=default_watchlist, height=90)
 
 if st.button("🚀 Markt-Scanner jetzt starten", type="primary"):
-    raw_tickers = [t.strip().upper() for t in watchlist_input.split(",") if t.strip()]
-    tickers_to_scan = list(dict.fromkeys(raw_tickers))[:40]
-    st.info(f"Scanne {len(tickers_to_scan)} Aktien... Bitte einen Moment Geduld.")
-    
-    data_d = yf.download(tickers_to_scan, period="2y", interval="1d", group_by="ticker", progress=False)
-    data_w = yf.download(tickers_to_scan, period="2y", interval="1wk", group_by="ticker", progress=False)
-
-    results = []
-    progress_bar = st.progress(0)
-
-    for idx, sym in enumerate(tickers_to_scan):
-        try:
-            df_sym_d = data_d.copy() if len(tickers_to_scan) == 1 else data_d[sym].dropna(how="all")
-            df_sym_w = data_w.copy() if len(tickers_to_scan) == 1 else data_w[sym].dropna(how="all")
-
-            if len(df_sym_d) >= 252:
-                df_calc = calculate_indicators(df_sym_d, df_sym_w, use_v64_1)
-                last_r = df_calc.iloc[-1]
-                e_score, x_score = get_scores(last_r, use_v64_1)
