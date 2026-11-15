@@ -105,6 +105,31 @@ def scan_single_ticker(sym, data_d, data_w, is_single, use_v64_1):
     except Exception:
         return None
 
+def run_scanner(watchlist_str, use_v64_1):
+    raw_tickers = [t.strip().upper() for t in watchlist_str.split(",") if t.strip()]
+    tickers_to_scan = list(dict.fromkeys(raw_tickers))[:40]
+    st.info(f"Scanne {len(tickers_to_scan)} Aktien... Bitte einen Moment Geduld.")
+    
+    data_d = yf.download(tickers_to_scan, period="2y", interval="1d", group_by="ticker", progress=False)
+    data_w = yf.download(tickers_to_scan, period="2y", interval="1wk", group_by="ticker", progress=False)
+
+    results = []
+    progress_bar = st.progress(0)
+    is_single = len(tickers_to_scan) == 1
+
+    for idx, sym in enumerate(tickers_to_scan):
+        res_item = scan_single_ticker(sym, data_d, data_w, is_single, use_v64_1)
+        if res_item is not None:
+            results.append(res_item)
+        progress_bar.progress((idx + 1) / len(tickers_to_scan))
+
+    if results:
+        res_df = pd.DataFrame(results).sort_values(by=["Entry Score (%)", "HV Rank (%)"], ascending=[False, False])
+        st.success(f"Fertig! {len(res_df)} Werte erfolgreich ausgewertet.")
+        st.dataframe(res_df, hide_index=True, use_container_width=True, height=600)
+    else:
+        st.error("Es konnten keine Daten abgerufen werden. Bitte prüfe die Schreibweise der Ticker.")
+
 st.sidebar.header("📈 Einzel-Chart & Filter")
 ticker = st.sidebar.text_input("Ticker-Symbol (z.B. AAPL, AAL, SAP.DE)", value="AAL").upper().strip()
 use_v64_1 = st.sidebar.checkbox("Adaptive Bänder & Schockschutz aktivieren", value=True)
@@ -176,18 +201,3 @@ with col_table:
     pct_trend = ((close_now - sma30w_now) / sma30w_now) * 100
     st_status = "Bullish (Grün)" if last['ST_Dir'] == -1 else "Bearish (Rot)"
     dashboard_data = {
-        "METRIK": ["Basiswert (Aktuell)", "Supertrend (14, 3)", "Optionstyp", "Abw. 30W-Trend", "Strike-Preis", "Restlaufzeit", "Moneyness", "Gap-Risk Ratio", "Entry Score", "Exit Score", "HV Rank (GK)"],
-        "WERT": [f"{ticker} ({close_now:.2f})", st_status, m_type, f"{pct_trend:+.2f} %", f"{m_strike:.2f}" if m_strike > 0 else "Nicht definiert", f"{dte} Tage", "In-the-Money (ITM)" if is_itm else "Out-of-the-Money (OTM)", f"{gap_risk_now:.2f}", f"{entry_score} %", f"{exit_score} %", f"{hv_rank_now:.1f} %"]
-    }
-    st.dataframe(pd.DataFrame(dashboard_data), hide_index=True, use_container_width=True, height=430)
-    if st.button("🔄 Einzelkurs aktualisieren"):
-        st.cache_data.clear()
-        st.rerun()
-
-st.divider()
-st.header("🔍 Markt-Screener (Bis zu 40 Werte gleichzeitig prüfen)")
-
-default_watchlist = "AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, AMD, NFLX, INTC, AAL, DAL, UAL, BA, DIS, KO, PEP, MCD, NKE, SBUX, JPM, BAC, WFC, C, V, MA, PYPL, SQ, XOM, CVX, PFE, JNJ, MRK, ABBV, T, VZ, F, GM, SAP.DE, ALV.DE"
-watchlist_input = st.text_area("Ticker-Liste (mit Komma getrennt, maximal 40 Werte):", value=default_watchlist, height=90)
-
-if st.button("🚀 Markt-Scanner jetzt starten", type="primary"):
