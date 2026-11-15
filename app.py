@@ -50,10 +50,7 @@ def calculate_indicators(df, df_w, use_v64_1=True):
     for i in range(1, len(df)):
         final_ub[i] = ub_arr[i] if (ub_arr[i] < final_ub[i-1] or c_arr[i-1] > final_ub[i-1]) else final_ub[i-1]
         final_lb[i] = lb_arr[i] if (lb_arr[i] > final_lb[i-1] or c_arr[i-1] < final_lb[i-1]) else final_lb[i-1]
-        if st_dir[i-1] == 1:
-            st_dir[i] = -1 if c_arr[i] > final_ub[i] else 1
-        else:
-            st_dir[i] = 1 if c_arr[i] < final_lb[i] else -1
+        st_dir[i] = (-1 if c_arr[i] > final_ub[i] else 1) if st_dir[i-1] == 1 else (1 if c_arr[i] < final_lb[i] else -1)
         supertrend[i] = final_lb[i] if st_dir[i] == -1 else final_ub[i]
 
     df['Supertrend'] = supertrend
@@ -188,28 +185,29 @@ is_itm = (close_now > m_strike) if m_type == "CALL" else (close_now < m_strike)
 
 col_chart, col_table = st.columns([2.2, 1])
 
-with col_chart:
-    plot_df = df.tail(150).copy()
-    fig = go.Figure()
-    fig.add_trace(go.Candlestick(x=plot_df.index, open=plot_df['Open'], high=plot_df['High'], low=plot_df['Low'], close=plot_df['Close'], name="Kurs"))
-    fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['KC_Upper'], line=dict(color='rgba(255,0,0,0.6)', width=1.5), name="KC Upper"))
-    fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['KC_Lower'], line=dict(color='rgba(0,255,0,0.6)', width=1.5), fill='tonexty', fillcolor='rgba(128,128,128,0.1)', name="KC Lower"))
-    fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['SMA30W'], line=dict(color='yellow', width=2.5), name="30W SMA"))
+plot_df = df.tail(150).copy()
+fig = go.Figure()
+fig.add_trace(go.Candlestick(x=plot_df.index, open=plot_df['Open'], high=plot_df['High'], low=plot_df['Low'], close=plot_df['Close'], name="Kurs"))
+fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['KC_Upper'], line=dict(color='rgba(255,0,0,0.6)', width=1.5), name="KC Upper"))
+fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['KC_Lower'], line=dict(color='rgba(0,255,0,0.6)', width=1.5), fill='tonexty', fillcolor='rgba(128,128,128,0.1)', name="KC Lower"))
+fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['SMA30W'], line=dict(color='yellow', width=2.5), name="30W SMA"))
 
-    if show_supertrend:
-        st_green = np.where(plot_df['ST_Dir'] == -1, plot_df['Supertrend'], np.nan)
-        st_red = np.where(plot_df['ST_Dir'] == 1, plot_df['Supertrend'], np.nan)
-        fig.add_trace(go.Scatter(x=plot_df.index, y=st_green, mode='lines', line=dict(color='#00e676', width=2.5), name="Supertrend (Bullish)"))
-        fig.add_trace(go.Scatter(x=plot_df.index, y=st_red, mode='lines', line=dict(color='#ff5252', width=2.5), name="Supertrend (Bearish)"))
+if show_supertrend:
+    st_green = np.where(plot_df['ST_Dir'] == -1, plot_df['Supertrend'], np.nan)
+    st_red = np.where(plot_df['ST_Dir'] == 1, plot_df['Supertrend'], np.nan)
+    fig.add_trace(go.Scatter(x=plot_df.index, y=st_green, mode='lines', line=dict(color='#00e676', width=2.5), name="Supertrend (Bullish)"))
+    fig.add_trace(go.Scatter(x=plot_df.index, y=st_red, mode='lines', line=dict(color='#ff5252', width=2.5), name="Supertrend (Bearish)"))
 
-    if use_atr_pro:
-        fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['ATR_Pro_Lower'], mode='markers', marker=dict(color='orange', size=4), name="ATR Pro Support"))
-        fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['ATR_Pro_Upper'], mode='markers', marker=dict(color='orange', size=4), name="ATR Pro Resistance"))
+if use_atr_pro:
+    fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['ATR_Pro_Lower'], mode='markers', marker=dict(color='orange', size=4), name="ATR Pro Support"))
+    fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['ATR_Pro_Upper'], mode='markers', marker=dict(color='orange', size=4), name="ATR Pro Resistance"))
 
-    if m_strike > 0:
-        fig.add_hline(y=m_strike, line_dash="dash", line_color="purple" if m_type == "CALL" else "cyan", annotation_text=f"Strike {m_strike}")
+if m_strike > 0:
+    fig.add_hline(y=m_strike, line_dash="dash", line_color="purple" if m_type == "CALL" else "cyan", annotation_text=f"Strike {m_strike}")
 
-    fig.update_layout(height=600, template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=30, b=10))
-    st.plotly_chart(fig, use_container_width=True)
+fig.update_layout(height=600, template="plotly_dark", xaxis_rangeslider_visible=False, margin=dict(l=10, r=10, t=30, b=10))
+col_chart.plotly_chart(fig, use_container_width=True)
 
-with col_table:
+col_table.subheader("📋 Cockpit-Dashboard")
+pct_trend = ((close_now - sma30w_now) / sma30w_now) * 100
+st_status = "Bullish (Grün)" if last['ST_Dir'] == -1 else "Bearish (Rot)"
