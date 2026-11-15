@@ -50,7 +50,10 @@ def calculate_indicators(df, df_w, use_v64_1=True):
     for i in range(1, len(df)):
         final_ub[i] = ub_arr[i] if (ub_arr[i] < final_ub[i-1] or c_arr[i-1] > final_ub[i-1]) else final_ub[i-1]
         final_lb[i] = lb_arr[i] if (lb_arr[i] > final_lb[i-1] or c_arr[i-1] < final_lb[i-1]) else final_lb[i-1]
-        st_dir[i] = (-1 if c_arr[i] > final_ub[i] else 1) if st_dir[i-1] == 1 else (1 if c_arr[i] < final_lb[i] else -1)
+        if st_dir[i-1] == 1:
+            st_dir[i] = -1 if c_arr[i] > final_ub[i] else 1
+        else:
+            st_dir[i] = 1 if c_arr[i] < final_lb[i] else -1
         supertrend[i] = final_lb[i] if st_dir[i] == -1 else final_ub[i]
 
     df['Supertrend'] = supertrend
@@ -80,7 +83,13 @@ def get_scores(last_row, use_v64_1=True):
     if float(last_row['Low']) <= float(last_row['KC_Lower']) or float(last_row['High']) >= float(last_row['KC_Upper']):
         e_score += 25
 
-    x_score = (40 if float(last_row['High']) >= float(last_row['KC_Upper']) else 0) + (30 if rsi_now > 70 else 0) + (30 if c_now > s30_now * 1.15 else 0)
+    x_score = 0
+    if float(last_row['High']) >= float(last_row['KC_Upper']):
+        x_score += 40
+    if rsi_now > 70:
+        x_score += 30
+    if c_now > s30_now * 1.15:
+        x_score += 30
     return e_score, x_score
 
 def scan_single_ticker(sym, data_d, data_w, is_single, use_v64_1):
@@ -97,10 +106,15 @@ def scan_single_ticker(sym, data_d, data_w, is_single, use_v64_1):
         pct_30 = ((c_price - s30) / s30) * 100
         st_txt = "🟢 Bullish" if last_r['ST_Dir'] == -1 else "🔴 Bearish"
         return {
-            "Ticker": sym, "Kurs": round(c_price, 2), "Entry Score (%)": int(e_score),
-            "Exit Score (%)": int(x_score), "HV Rank (%)": round(float(last_r['HV_Rank']), 1),
-            "RSI (14)": round(float(last_r['RSI']), 1), "Gap-Risk": round(float(last_r['Gap_Risk']), 2),
-            "Abw. 30W-SMA (%)": round(pct_30, 2), "Supertrend": st_txt
+            "Ticker": sym,
+            "Kurs": round(c_price, 2),
+            "Entry Score (%)": int(e_score),
+            "Exit Score (%)": int(x_score),
+            "HV Rank (%)": round(float(last_r['HV_Rank']), 1),
+            "RSI (14)": round(float(last_r['RSI']), 1),
+            "Gap-Risk": round(float(last_r['Gap_Risk']), 2),
+            "Abw. 30W-SMA (%)": round(pct_30, 2),
+            "Supertrend": st_txt
         }
     except Exception:
         return None
@@ -183,8 +197,10 @@ with col_chart:
     fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['SMA30W'], line=dict(color='yellow', width=2.5), name="30W SMA"))
 
     if show_supertrend:
-        fig.add_trace(go.Scatter(x=plot_df.index, y=np.where(plot_df['ST_Dir'] == -1, plot_df['Supertrend'], np.nan), mode='lines', line=dict(color='#00e676', width=2.5), name="Supertrend (Bullish)"))
-        fig.add_trace(go.Scatter(x=plot_df.index, y=np.where(plot_df['ST_Dir'] == 1, plot_df['Supertrend'], np.nan), mode='lines', line=dict(color='#ff5252', width=2.5), name="Supertrend (Bearish)"))
+        st_green = np.where(plot_df['ST_Dir'] == -1, plot_df['Supertrend'], np.nan)
+        st_red = np.where(plot_df['ST_Dir'] == 1, plot_df['Supertrend'], np.nan)
+        fig.add_trace(go.Scatter(x=plot_df.index, y=st_green, mode='lines', line=dict(color='#00e676', width=2.5), name="Supertrend (Bullish)"))
+        fig.add_trace(go.Scatter(x=plot_df.index, y=st_red, mode='lines', line=dict(color='#ff5252', width=2.5), name="Supertrend (Bearish)"))
 
     if use_atr_pro:
         fig.add_trace(go.Scatter(x=plot_df.index, y=plot_df['ATR_Pro_Lower'], mode='markers', marker=dict(color='orange', size=4), name="ATR Pro Support"))
@@ -197,7 +213,3 @@ with col_chart:
     st.plotly_chart(fig, use_container_width=True)
 
 with col_table:
-    st.subheader("📋 Cockpit-Dashboard")
-    pct_trend = ((close_now - sma30w_now) / sma30w_now) * 100
-    st_status = "Bullish (Grün)" if last['ST_Dir'] == -1 else "Bearish (Rot)"
-    dashboard_data = {
