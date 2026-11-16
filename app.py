@@ -7,6 +7,7 @@ from datetime import date
 
 st.set_page_config(page_title="Optionen Profi-Panel v64.2", layout="wide")
 st.title("📊 Optionen Profi-Panel - v64.2 - Adaptiv MASTER")
+st.link_button("📓 Zum Trading-Tagebuch wechseln", "https://streamlit.app")
 
 def calculate_indicators(df, df_w, use_v64_1=True):
     df = df.copy()
